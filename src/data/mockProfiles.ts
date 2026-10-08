@@ -6,37 +6,6 @@ export interface CreatorDataset {
 }
 
 export const CREATOR_DATASETS: Record<string, CreatorDataset> = {
-  yukiii: {
-    profile: {
-      id: "yukiii",
-      username: "___yukiii_____",
-      full_name: "Yuki Bhuiyan",
-      followers: 477,
-      following: 111,
-      posts_count: 31,
-      is_verified: false,
-      is_private: false,
-      biography: "Assalamuwalaikum 🤗🤗🤗",
-      profile_pic_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=faces",
-      archetypeTag: "Real Bright Data Snapshot",
-      archetypeDescription: "Real scraped creator from cache. Has 477 followers (borderline nano floor gate check) and uses hidden likes, triggering median imputation.",
-    },
-    posts: [
-      { post_id: "3861521564", date: "2026-03-26", likes: 0, likes_hidden: true, comments_count: 3, views: 0, is_video: true },
-      { post_id: "3798496105", date: "2025-12-29", likes: 48, likes_hidden: false, comments_count: 3, views: 0, is_video: true },
-      { post_id: "3858293792", date: "2026-03-22", likes: 0, likes_hidden: true, comments_count: 3, views: 0, is_video: false },
-      { post_id: "3929652299", date: "2026-06-28", likes: 0, likes_hidden: true, comments_count: 4, views: 0, is_video: false },
-      { post_id: "3911257039", date: "2026-06-03", likes: 28, likes_hidden: false, comments_count: 2, views: 0, is_video: true },
-      { post_id: "3875834156", date: "2026-04-15", likes: 93, likes_hidden: false, comments_count: 8, views: 0, is_video: false },
-      { post_id: "3997385195", date: "2026-09-30", likes: 33, likes_hidden: false, comments_count: 5, views: 0, is_video: false },
-      { post_id: "3781707226", date: "2025-12-06", likes: 0, likes_hidden: true, comments_count: 2, views: 0, is_video: false },
-      { post_id: "3921553718", date: "2026-06-17", likes: 73, likes_hidden: false, comments_count: 5, views: 0, is_video: false },
-      { post_id: "3775191290", date: "2025-11-27", likes: 52, likes_hidden: false, comments_count: 4, views: 0, is_video: false },
-      { post_id: "3738914588", date: "2025-10-08", likes: 61, likes_hidden: false, comments_count: 6, views: 0, is_video: false },
-      { post_id: "3712391024", date: "2025-09-01", likes: 44, likes_hidden: false, comments_count: 3, views: 0, is_video: false },
-    ],
-  },
-
   clara_lifestyle: {
     profile: {
       id: "clara_lifestyle",
@@ -47,7 +16,7 @@ export const CREATOR_DATASETS: Record<string, CreatorDataset> = {
       posts_count: 142,
       is_verified: false,
       is_private: false,
-      biography: "Clean living, slow coffee & plant-based recipes ☕🌿 London",
+      biography: "Clean living, slow coffee & plant-based recipes ☕🌿",
       profile_pic_url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop&crop=faces",
       archetypeTag: "Organic Nano Influencer",
       archetypeDescription: "High authenticity archetype: Natural engagement rate (~6.2%), high coefficient of variation (0.36), healthy discussion comments, and balanced follow ratio.",
@@ -63,6 +32,37 @@ export const CREATOR_DATASETS: Record<string, CreatorDataset> = {
       { post_id: "clara_08", date: "2026-08-30", likes: 245, likes_hidden: false, comments_count: 25, views: 0, is_video: false },
       { post_id: "clara_09", date: "2026-08-25", likes: 310, likes_hidden: false, comments_count: 31, views: 720, is_video: true },
       { post_id: "clara_10", date: "2026-08-20", likes: 225, likes_hidden: false, comments_count: 20, views: 0, is_video: false },
+    ],
+  },
+
+  borderline_nano: {
+    profile: {
+      id: "borderline_nano",
+      username: "borderline.creator",
+      full_name: "Borderline Nano Test Profile",
+      followers: 477,
+      following: 111,
+      posts_count: 31,
+      is_verified: false,
+      is_private: false,
+      biography: "Creative student & photography enthusiast 📷",
+      profile_pic_url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=faces",
+      archetypeTag: "Borderline Floor Test",
+      archetypeDescription: "Anonymized test profile (477 followers) to test nano-floor gate checks (< 500) and hidden-like imputation algorithms.",
+    },
+    posts: [
+      { post_id: "nano_01", date: "2026-03-26", likes: 0, likes_hidden: true, comments_count: 3, views: 0, is_video: true },
+      { post_id: "nano_02", date: "2025-12-29", likes: 48, likes_hidden: false, comments_count: 3, views: 0, is_video: true },
+      { post_id: "nano_03", date: "2026-03-22", likes: 0, likes_hidden: true, comments_count: 3, views: 0, is_video: false },
+      { post_id: "nano_04", date: "2026-06-28", likes: 0, likes_hidden: true, comments_count: 4, views: 0, is_video: false },
+      { post_id: "nano_05", date: "2026-06-03", likes: 28, likes_hidden: false, comments_count: 2, views: 0, is_video: true },
+      { post_id: "nano_06", date: "2026-04-15", likes: 93, likes_hidden: false, comments_count: 8, views: 0, is_video: false },
+      { post_id: "nano_07", date: "2026-09-30", likes: 33, likes_hidden: false, comments_count: 5, views: 0, is_video: false },
+      { post_id: "nano_08", date: "2025-12-06", likes: 0, likes_hidden: true, comments_count: 2, views: 0, is_video: false },
+      { post_id: "nano_09", date: "2026-06-17", likes: 73, likes_hidden: false, comments_count: 5, views: 0, is_video: false },
+      { post_id: "nano_10", date: "2025-11-27", likes: 52, likes_hidden: false, comments_count: 4, views: 0, is_video: false },
+      { post_id: "nano_11", date: "2025-10-08", likes: 61, likes_hidden: false, comments_count: 6, views: 0, is_video: false },
+      { post_id: "nano_12", date: "2025-09-01", likes: 44, likes_hidden: false, comments_count: 3, views: 0, is_video: false },
     ],
   },
 
