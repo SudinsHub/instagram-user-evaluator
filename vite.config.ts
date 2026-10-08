@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import scrapeHandler from './api/scrape.ts'
@@ -13,7 +13,6 @@ function devApiPlugin() {
           const username = url.searchParams.get('username') || ''
           req.query = { username }
 
-          // Helper methods for res.status().json()
           res.status = (code: number) => {
             res.statusCode = code
             return res
@@ -35,12 +34,17 @@ function devApiPlugin() {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), devApiPlugin()],
-  base: './',
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  Object.assign(process.env, env)
+
+  return {
+    plugins: [react(), devApiPlugin()],
+    base: './',
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+      },
     },
-  },
+  }
 })

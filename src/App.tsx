@@ -10,7 +10,6 @@ import { GlassBoxInspector } from "@/components/GlassBoxInspector";
 import { AnalyticsCharts } from "@/components/AnalyticsCharts";
 import { PostDataTable } from "@/components/PostDataTable";
 import { ExportModal } from "@/components/ExportModal";
-import { ApiKeyModal } from "@/components/ApiKeyModal";
 import { EmptyProfileState } from "@/components/EmptyProfileState";
 import { UsernameSearchHero } from "@/components/UsernameSearchHero";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -39,27 +38,12 @@ export function App() {
   // Modals state
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [mobileParamsOpen, setMobileParamsOpen] = useState(false);
-  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
 
   // Search / Scraper state
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [isScraping, setIsScraping] = useState(false);
   const [scrapingStatus, setScrapingStatus] = useState("");
   const [scrapingError, setScrapingError] = useState<string | null>(null);
-
-  // Stored API key (from localStorage)
-  const [apiKey, setApiKey] = useState<string>(() => {
-    return localStorage.getItem("brightdata_api_key") || "";
-  });
-
-  const handleSaveApiKey = (key: string) => {
-    setApiKey(key);
-    if (key) {
-      localStorage.setItem("brightdata_api_key", key);
-    } else {
-      localStorage.removeItem("brightdata_api_key");
-    }
-  };
 
   // Dynamic live-scraped datasets storage
   const [scrapedDatasets, setScrapedDatasets] = useState<Record<string, CreatorDataset>>({});
@@ -90,36 +74,23 @@ export function App() {
     return runEvaluation(activeDataset.profile, activeDataset.posts, config);
   }, [activeDataset, config]);
 
-  // Scrape handler calling Vercel /api/scrape serverless endpoint
+  // Scrape handler calling backend /api/scrape endpoint (uses .env directly)
   const handleScrapeUsername = async (rawHandle: string) => {
     const cleanUser = rawHandle.trim().toLowerCase().replace(/^@/, "");
     if (!cleanUser) return;
 
     setIsScraping(true);
     setScrapingError(null);
-    setScrapingStatus(`Contacting Bright Data Instagram scraper for @${cleanUser}...`);
+    setScrapingStatus(`Querying Bright Data Instagram scraper for @${cleanUser}...`);
 
     try {
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (apiKey) {
-        headers["x-brightdata-key"] = apiKey;
-      }
-
-      setScrapingStatus(`Querying Bright Data scraper (gd_l1vikfch901nx3by4) & platform cache...`);
-
       const response = await fetch(`/api/scrape?username=${encodeURIComponent(cleanUser)}`, {
         method: "GET",
-        headers,
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        if (data.requiresApiKey) {
-          setApiKeyModalOpen(true);
-        }
         throw new Error(data.error || `Scrape failed with status ${response.status}`);
       }
 
@@ -144,7 +115,7 @@ export function App() {
       setScrapingStatus("Evaluation ready!");
     } catch (err: any) {
       console.error("Scraping error:", err);
-      setScrapingError(err.message || "Failed to scrape profile. Please check the username or API key.");
+      setScrapingError(err.message || "Failed to scrape profile. Please check the username or network.");
     } finally {
       setIsScraping(false);
     }
@@ -180,7 +151,6 @@ export function App() {
         onToggleTheme={() => setDarkMode(!darkMode)}
         onToggleMobileParams={() => setMobileParamsOpen(!mobileParamsOpen)}
         mobileParamsOpen={mobileParamsOpen}
-        onOpenApiKeyModal={() => setApiKeyModalOpen(true)}
       />
 
       {/* Main Workspace: Left Parameters Sidebar + Right Interactive Panels */}
@@ -204,8 +174,6 @@ export function App() {
                 isLoading={isScraping}
                 statusMessage={scrapingStatus}
                 errorMessage={scrapingError}
-                onOpenApiKeyModal={() => setApiKeyModalOpen(true)}
-                hasApiKey={Boolean(apiKey)}
               />
 
               <EmptyProfileState onSelectCreator={setSelectedCreatorId} />
@@ -213,7 +181,7 @@ export function App() {
           ) : (
             /* Active Creator Evaluation Workspace */
             <div className="space-y-6">
-              {/* Quick Search Bar to Scrape Another Handle */}
+              {/* Quick Bar to Scrape Another Handle */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-card/60">
                 <div className="flex items-center space-x-2 text-xs">
                   <span className="text-muted-foreground font-medium">Currently viewing:</span>
@@ -242,8 +210,6 @@ export function App() {
                   isLoading={isScraping}
                   statusMessage={scrapingStatus}
                   errorMessage={scrapingError}
-                  onOpenApiKeyModal={() => setApiKeyModalOpen(true)}
-                  hasApiKey={Boolean(apiKey)}
                 />
               )}
 
@@ -339,14 +305,6 @@ export function App() {
         isOpen={exportModalOpen}
         onClose={() => setExportModalOpen(false)}
         config={config}
-      />
-
-      {/* Bright Data API Key Modal */}
-      <ApiKeyModal
-        isOpen={apiKeyModalOpen}
-        onClose={() => setApiKeyModalOpen(false)}
-        apiKey={apiKey}
-        onSaveApiKey={handleSaveApiKey}
       />
     </div>
   );

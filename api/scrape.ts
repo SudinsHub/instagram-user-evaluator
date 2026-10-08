@@ -1,7 +1,11 @@
 /**
  * Vercel Serverless Function: /api/scrape
  * Queries Bright Data Scraper (gd_l1vikfch901nx3by4) for Instagram profile & posts.
+ * Automatically loads BRIGHTDATA_API_KEY from environment variables / .env file.
  */
+
+import fs from "node:fs";
+import path from "node:path";
 
 interface ScrapedPost {
   post_id: string;
@@ -16,6 +20,29 @@ interface ScrapedPost {
   url?: string;
 }
 
+function resolveApiKey(): string {
+  if (process.env.BRIGHTDATA_API_KEY) return process.env.BRIGHTDATA_API_KEY.trim();
+  if (process.env.BRIGHT_DATA_API_KEY) return process.env.BRIGHT_DATA_API_KEY.trim();
+
+  // Fallback: Read from .env in project root if running in local node environment
+  try {
+    const envPath = path.resolve(process.cwd(), ".env");
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, "utf-8");
+      const match = content.match(/BRIGHT_?DATA_API_KEY\s*=\s*([^\r\n]+)/);
+      if (match && match[1]) {
+        const val = match[1].trim().replace(/^["']|["']$/g, "");
+        process.env.BRIGHTDATA_API_KEY = val;
+        return val;
+      }
+    }
+  } catch {
+    // Ignore file read error
+  }
+
+  return "";
+}
+
 export default async function handler(req: any, res: any) {
   // CORS Headers
   res.setHeader("Access-Control-Allow-Credentials", "true");
@@ -23,7 +50,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS,PATCH,DELETE,POST,PUT");
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-BrightData-Key, Authorization"
+    "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
   );
 
   if (req.method === "OPTIONS") {
@@ -45,19 +72,13 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 2. Resolve Bright Data API key (from header or server env)
-    const apiKey = (
-      req.headers?.["x-brightdata-key"] ||
-      process.env.BRIGHTDATA_API_KEY ||
-      process.env.BRIGHT_DATA_API_KEY ||
-      ""
-    ).toString().trim();
+    // 2. Resolve Bright Data API key from environment / .env
+    const apiKey = resolveApiKey();
 
     if (!apiKey) {
-      return res.status(401).json({
+      return res.status(500).json({
         error:
-          "Bright Data API Key is not configured. Please set BRIGHTDATA_API_KEY in your Vercel Environment Variables or enter it in the app settings modal.",
-        requiresApiKey: true,
+          "Bright Data API Key is not set in .env or server environment. Please set BRIGHTDATA_API_KEY.",
       });
     }
 
