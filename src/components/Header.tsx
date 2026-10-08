@@ -26,6 +26,7 @@ interface HeaderProps {
   onToggleTheme: () => void;
   onToggleMobileParams: () => void;
   mobileParamsOpen: boolean;
+  onOpenApiKeyModal: () => void;
 }
 
 export function Header({
@@ -39,6 +40,7 @@ export function Header({
   onToggleTheme,
   onToggleMobileParams,
   mobileParamsOpen,
+  onOpenApiKeyModal,
 }: HeaderProps) {
   const [presetOpen, setPresetOpen] = React.useState(false);
 
@@ -168,6 +170,17 @@ export function Header({
           >
             <Code2 className="h-3.5 w-3.5" />
             <span>Export</span>
+          </Button>
+
+          {/* Bright Data API Key Settings */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={onOpenApiKeyModal}
+            className="h-8 w-8 text-amber-500 hover:text-amber-600"
+            title="Configure Bright Data API Key"
+          >
+            <Sparkles className="h-4 w-4" />
           </Button>
 
           {/* Dark / Light Toggle */}

@@ -1,10 +1,42 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
+import scrapeHandler from './api/scrape.ts'
+
+function devApiPlugin() {
+  return {
+    name: 'dev-api-middleware',
+    configureServer(server: any) {
+      server.middlewares.use('/api/scrape', async (req: any, res: any) => {
+        try {
+          const url = new URL(req.url, 'http://localhost')
+          const username = url.searchParams.get('username') || ''
+          req.query = { username }
+
+          // Helper methods for res.status().json()
+          res.status = (code: number) => {
+            res.statusCode = code
+            return res
+          }
+          res.json = (data: any) => {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(data))
+          }
+
+          await scrapeHandler(req, res)
+        } catch (err: any) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: err.message || 'Internal Dev API error' }))
+        }
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), devApiPlugin()],
   base: './',
   resolve: {
     alias: {
