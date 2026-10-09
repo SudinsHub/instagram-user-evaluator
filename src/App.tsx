@@ -102,10 +102,10 @@ export function App() {
       }
 
       // If Bright Data snapshot is still being collected, auto-retry seamlessly before timeout
-      if (data.status === "processing" && retryCount < 5) {
+      if (data.status === "processing" && retryCount < 24) {
         setScrapingStatus(
           data.message ||
-            `Scrape in progress on Bright Data (snapshot ${data.snapshot_id || ""}). Polling completed snapshot in 5s...`
+            `Scrape in progress on Bright Data (snapshot ${data.snapshot_id || ""}). Polling completed data in 5s... (attempt ${retryCount + 1}/24)`
         );
         setTimeout(() => {
           handleScrapeUsername(cleanUser, false, retryCount + 1);
