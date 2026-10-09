@@ -74,7 +74,9 @@ export function App() {
   const handleScrapeUsername = async (
     rawHandle: string,
     forceRefresh: boolean = false,
-    retryCount: number = 0
+    retryCount: number = 0,
+    snapshotId?: string,
+    postsSnapshotId?: string
   ) => {
     const cleanUser = rawHandle.trim().toLowerCase().replace(/^@/, "");
     if (!cleanUser) return;
@@ -83,14 +85,21 @@ export function App() {
     setScrapingError(null);
     setScrapingStatus(
       retryCount > 0
-        ? `Polling completed snapshot from Bright Data dashboard for @${cleanUser}... (attempt ${retryCount + 1})`
+        ? `Polling completed data from Bright Data for @${cleanUser}... (attempt ${retryCount + 1}/24)`
         : forceRefresh
         ? `Force scraping live data from Bright Data API for @${cleanUser}...`
         : `Checking Bright Data dashboard for existing snapshot for @${cleanUser}...`
     );
 
     try {
-      const url = `/api/scrape?username=${encodeURIComponent(cleanUser)}${forceRefresh && retryCount === 0 ? "&force_refresh=true" : ""}`;
+      let url = `/api/scrape?username=${encodeURIComponent(cleanUser)}${forceRefresh && retryCount === 0 ? "&force_refresh=true" : ""}`;
+      if (snapshotId) {
+        url += `&snapshot_id=${encodeURIComponent(snapshotId)}`;
+      }
+      if (postsSnapshotId) {
+        url += `&posts_snapshot_id=${encodeURIComponent(postsSnapshotId)}`;
+      }
+
       const response = await fetch(url, {
         method: "GET",
       });
@@ -105,11 +114,17 @@ export function App() {
       if (data.status === "processing" && retryCount < 24) {
         setScrapingStatus(
           data.message ||
-            `Scrape in progress on Bright Data (snapshot ${data.snapshot_id || ""}). Polling completed data in 5s... (attempt ${retryCount + 1}/24)`
+            `Scrape in progress on Bright Data (snapshot ${data.posts_snapshot_id || data.snapshot_id || ""}). Polling in 4s... (attempt ${retryCount + 1}/24)`
         );
         setTimeout(() => {
-          handleScrapeUsername(cleanUser, false, retryCount + 1);
-        }, 5000);
+          handleScrapeUsername(
+            cleanUser,
+            false,
+            retryCount + 1,
+            data.snapshot_id || snapshotId,
+            data.posts_snapshot_id || postsSnapshotId
+          );
+        }, 4000);
         return;
       }
 

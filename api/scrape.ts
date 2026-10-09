@@ -1,10 +1,11 @@
 /**
  * Vercel Serverless Function & Local Dev Handler: /api/scrape
- * Bright Data Platform Scraper with Dashboard Snapshot Caching:
+ * Bright Data Platform Scraper with Dashboard Snapshot Caching & Safe Serverless Timeouts:
  * 
  * 1. Fetch Instagram profile using username with profile scraper (gd_l1vikfch901nx3by4).
+ *    - Direct lookup if snapshot_id provided.
  *    - Reuses existing dashboard snapshot if within CACHE_EXPIRY_DAYS.
- *    - If running/starting, waits for it. If none, triggers new scrape job.
+ *    - If running/starting, polls safely. If none, triggers new scrape job.
  * 2. From the profile's posts list:
  *    - Selects maximum 30 recent posts or within 3-month posts (90 days).
  * 3. For each of the selected posts:
@@ -14,8 +15,8 @@
  * 4. Populates all normalized fields needed for the rule-based evaluation calculation pipeline:
  *    - Followers, following, posts_count, verified, private, joined_recently
  *    - Post-level likes (with hidden like detection), comments_count, video views, content types.
- * 5. Uses a safe cutoff (~46s) before Vercel 60s Serverless Runtime Timeout, returning
- *    a "processing" status so the frontend can seamlessly auto-retry.
+ * 5. Uses a strict safe deadline (~34s) well before Vercel 60s Serverless Runtime Timeout,
+ *    returning a "processing" status with snapshot IDs so the frontend auto-retries seamlessly.
  */
 
 import fs from "fs";
@@ -47,6 +48,9 @@ interface ExistingSnapshot {
 const PROFILE_DATASET_ID = "gd_l1vikfch901nx3by4";
 const POST_DATASET_ID = "gd_lk5ns7kz21pck8jpis";
 
+// Hard ceiling for function execution time to prevent Vercel 504 timeouts (60s limit)
+const GLOBAL_SAFE_TIMEOUT_MS = 34000;
+
 // In-memory cache of snapshot ID -> target username to make repeated lookup instant
 const profileSnapshotInputCache = new Map<string, string>();
 
@@ -58,8 +62,6 @@ const indexedPostSnapshots = new Set<string>();
 
 /**
  * Extracts Instagram shortcode from URL or string
- * e.g. https://www.instagram.com/p/DWW4WdkEquo/ -> DWW4WdkEquo
- *      https://instagram.com/reel/DeMvgZvk47C -> DeMvgZvk47C
  */
 function extractShortcode(urlOrId?: string): string {
   if (!urlOrId) return "";
@@ -126,14 +128,13 @@ async function getProfileSnapshotInputUsername(snapshotId: string, apiKey: strin
     const inputUrl = `https://api.brightdata.com/datasets/v3/snapshot/${snapshotId}/input`;
     const res = await fetch(inputUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(3000),
     });
 
     if (!res.ok) return null;
 
     const text = await res.text();
     const lines = text.split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean);
-    // Format is CSV: lines[0] = "user_name", lines[1] = "<username>"
     const username = lines.length >= 2 ? lines[1].replace(/^["']|["']$/g, "") : (lines[0] || "");
     if (username) {
       profileSnapshotInputCache.set(snapshotId, username);
@@ -147,6 +148,38 @@ async function getProfileSnapshotInputUsername(snapshotId: string, apiKey: strin
 }
 
 /**
+ * Checks a specific snapshot by ID directly (instant 1-hop progress check)
+ */
+async function checkSpecificSnapshot(
+  snapshotId: string,
+  apiKey: string,
+  expiryDays: number
+): Promise<ExistingSnapshot | null> {
+  if (!snapshotId) return null;
+  try {
+    const progressUrl = `https://api.brightdata.com/datasets/v3/progress/${snapshotId}`;
+    const res = await fetch(progressUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!res.ok) return null;
+    const progData: any = await res.json();
+    if (progData.status === "failed" || progData.status === "cancelled") return null;
+
+    return {
+      id: snapshotId,
+      created: new Date().toISOString(),
+      status: progData.status || "running",
+      ageDays: 0,
+      daysLeft: expiryDays,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Searches Bright Data dashboard for existing snapshots for the target username
  * created within the last `expiryDays`.
  */
@@ -157,11 +190,11 @@ async function findExistingProfileSnapshot(
 ): Promise<ExistingSnapshot | null> {
   try {
     const fromDate = new Date(Date.now() - expiryDays * 24 * 60 * 60 * 1000).toISOString();
-    const listUrl = `https://api.brightdata.com/datasets/v3/snapshots?dataset_id=${PROFILE_DATASET_ID}&from_date=${encodeURIComponent(fromDate)}&limit=50`;
+    const listUrl = `https://api.brightdata.com/datasets/v3/snapshots?dataset_id=${PROFILE_DATASET_ID}&from_date=${encodeURIComponent(fromDate)}&limit=30`;
 
     const listRes = await fetch(listUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(3500),
     });
 
     if (!listRes.ok) return null;
@@ -173,7 +206,7 @@ async function findExistingProfileSnapshot(
       if (s.status === "running" || s.status === "starting") return true;
       if (s.status === "ready" && (s.dataset_size ?? 1) > 0 && (s.errors ?? 0) === 0) return true;
       return false;
-    });
+    }).slice(0, 16); // Check at most 16 candidates to preserve time budget
 
     if (candidates.length === 0) return null;
 
@@ -261,9 +294,7 @@ function normalizeRawPost(item: any, fallbackIndex: number = 0): ScrapedPost {
 }
 
 /**
- * Safely parses Bright Data responses which may be formatted as:
- * 1. Standard JSON object / array
- * 2. Newline-Delimited JSON (NDJSON / JSONL) where multiple JSON objects are separated by newlines
+ * Safely parses Bright Data responses (JSON object, array, or NDJSON / JSONL)
  */
 function parseBrightDataResponse(text: string): any {
   if (!text || !text.trim()) return null;
@@ -298,7 +329,7 @@ async function indexPostSnapshot(snapshotId: string, apiKey: string): Promise<nu
     const downloadUrl = `https://api.brightdata.com/datasets/v3/snapshot/${snapshotId}?format=json`;
     const res = await fetch(downloadUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(7000),
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!res.ok) return 0;
@@ -332,16 +363,16 @@ async function indexPostSnapshot(snapshotId: string, apiKey: string): Promise<nu
 
 /**
  * Scans Bright Data dashboard for existing post snapshots created within expiryDays
- * and indexes them into the post cache.
+ * and indexes up to the top 3 most recent ready snapshots into the post cache.
  */
 async function indexExistingPostSnapshotsFromDashboard(apiKey: string, expiryDays: number): Promise<string[]> {
   try {
     const fromDate = new Date(Date.now() - expiryDays * 24 * 60 * 60 * 1000).toISOString();
-    const listUrl = `https://api.brightdata.com/datasets/v3/snapshots?dataset_id=${POST_DATASET_ID}&from_date=${encodeURIComponent(fromDate)}&limit=50`;
+    const listUrl = `https://api.brightdata.com/datasets/v3/snapshots?dataset_id=${POST_DATASET_ID}&from_date=${encodeURIComponent(fromDate)}&limit=15`;
 
     const listRes = await fetch(listUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(3000),
     });
 
     if (!listRes.ok) return [];
@@ -349,14 +380,12 @@ async function indexExistingPostSnapshotsFromDashboard(apiKey: string, expiryDay
     const snapshots: any = await listRes.json();
     if (!Array.isArray(snapshots) || snapshots.length === 0) return [];
 
-    const readySnapshots = snapshots.filter(
-      (s) => s.status === "ready" && (s.dataset_size ?? 0) > 0 && !indexedPostSnapshots.has(s.id)
-    );
+    const readySnapshots = snapshots
+      .filter((s) => s.status === "ready" && (s.dataset_size ?? 0) > 0 && !indexedPostSnapshots.has(s.id))
+      .slice(0, 3); // Limit to 3 most recent ready snapshots to prevent slow parallel downloads
 
-    // Download and index in parallel chunks
     await Promise.all(readySnapshots.map((s) => indexPostSnapshot(s.id, apiKey)));
 
-    // Return any currently running post snapshot IDs
     const runningSnapshots = snapshots
       .filter((s) => s.status === "running" || s.status === "starting")
       .map((s) => s.id);
@@ -369,25 +398,39 @@ async function indexExistingPostSnapshotsFromDashboard(apiKey: string, expiryDay
 }
 
 /**
- * Polls a snapshot until ready, or returns false if approaching serverless execution limit.
+ * Polls a snapshot until ready, strictly guarded against the overall serverless timeout.
  */
 async function pollSnapshotUntilReady(
   snapshotId: string,
   apiKey: string,
-  maxWaitMs: number = 46000
+  handlerStartTime: number,
+  maxPollDurationMs: number = 28000
 ): Promise<{ isReady: boolean; data?: any }> {
   const progressUrl = `https://api.brightdata.com/datasets/v3/progress/${snapshotId}`;
   const downloadUrl = `https://api.brightdata.com/datasets/v3/snapshot/${snapshotId}?format=json`;
 
-  const startTime = Date.now();
+  const pollStartTime = Date.now();
 
-  while (Date.now() - startTime < maxWaitMs) {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+  while (true) {
+    const elapsedTotal = Date.now() - handlerStartTime;
+    const elapsedPoll = Date.now() - pollStartTime;
+
+    // Hard safety stop: if approaching safe cutoff or poll max, break immediately
+    if (elapsedTotal >= GLOBAL_SAFE_TIMEOUT_MS - 4000 || elapsedPoll >= maxPollDurationMs) {
+      break;
+    }
+
+    const sleepMs = Math.min(2000, Math.max(500, (GLOBAL_SAFE_TIMEOUT_MS - 4000) - elapsedTotal));
+    await new Promise((resolve) => setTimeout(resolve, sleepMs));
+
+    if (Date.now() - handlerStartTime >= GLOBAL_SAFE_TIMEOUT_MS - 3500) {
+      break;
+    }
 
     try {
       const progRes = await fetch(progressUrl, {
         headers: { Authorization: `Bearer ${apiKey}` },
-        signal: AbortSignal.timeout(4000),
+        signal: AbortSignal.timeout(3000),
       });
 
       if (progRes.ok) {
@@ -395,7 +438,7 @@ async function pollSnapshotUntilReady(
         if (progData.status === "ready") {
           const downloadRes = await fetch(downloadUrl, {
             headers: { Authorization: `Bearer ${apiKey}` },
-            signal: AbortSignal.timeout(7000),
+            signal: AbortSignal.timeout(5000),
           });
           if (downloadRes.ok) {
             const text = await downloadRes.text();
@@ -437,7 +480,7 @@ export default async function handler(req: any, res: any) {
   const handlerStartTime = Date.now();
 
   try {
-    // 1. Extract username and force_refresh flag
+    // 1. Extract params
     const username = (
       req.query?.username ||
       req.body?.username ||
@@ -447,6 +490,18 @@ export default async function handler(req: any, res: any) {
     const forceRefresh =
       req.query?.force_refresh === "true" ||
       req.body?.force_refresh === true;
+
+    const providedProfileSnapshotId = (
+      req.query?.snapshot_id ||
+      req.body?.snapshot_id ||
+      ""
+    ).toString().trim();
+
+    const providedPostsSnapshotId = (
+      req.query?.posts_snapshot_id ||
+      req.body?.posts_snapshot_id ||
+      ""
+    ).toString().trim();
 
     if (!username) {
       return res.status(400).json({
@@ -473,7 +528,17 @@ export default async function handler(req: any, res: any) {
     // STEP 1: FETCH PROFILE USING USERNAME WITH PROFILE SCRAPER
     // =========================================================================
     if (!forceRefresh) {
-      const existingSnapshot = await findExistingProfileSnapshot(apiKey, username, expiryDays);
+      let existingSnapshot: ExistingSnapshot | null = null;
+
+      // Fast path: if client provided snapshot_id from prior poll, check it directly
+      if (providedProfileSnapshotId) {
+        existingSnapshot = await checkSpecificSnapshot(providedProfileSnapshotId, apiKey, expiryDays);
+      }
+
+      // Otherwise search dashboard snapshots
+      if (!existingSnapshot) {
+        existingSnapshot = await findExistingProfileSnapshot(apiKey, username, expiryDays);
+      }
 
       if (existingSnapshot) {
         matchedProfileSnapshotId = existingSnapshot.id;
@@ -484,7 +549,7 @@ export default async function handler(req: any, res: any) {
           const downloadUrl = `https://api.brightdata.com/datasets/v3/snapshot/${existingSnapshot.id}?format=json`;
           const downloadRes = await fetch(downloadUrl, {
             headers: { Authorization: `Bearer ${apiKey}` },
-            signal: AbortSignal.timeout(6000),
+            signal: AbortSignal.timeout(5000),
           });
 
           if (downloadRes.ok) {
@@ -493,10 +558,8 @@ export default async function handler(req: any, res: any) {
             isProfileCacheHit = true;
           }
         } else {
-          // Profile snapshot is already starting/running in dashboard: wait for it
-          const elapsed = Date.now() - handlerStartTime;
-          const remainingSafeMs = Math.max(5000, 48000 - elapsed);
-          const pollResult = await pollSnapshotUntilReady(existingSnapshot.id, apiKey, remainingSafeMs);
+          // Profile snapshot is still starting/running: poll safely
+          const pollResult = await pollSnapshotUntilReady(existingSnapshot.id, apiKey, handlerStartTime, 24000);
 
           if (pollResult.isReady) {
             profileResultData = pollResult.data;
@@ -531,6 +594,7 @@ export default async function handler(req: any, res: any) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(scrapePayload),
+        signal: AbortSignal.timeout(7000),
       });
 
       if (!scrapeResponse.ok) {
@@ -548,9 +612,7 @@ export default async function handler(req: any, res: any) {
         matchedProfileSnapshotId = snapshotId;
         profileSnapshotInputCache.set(snapshotId, username);
 
-        const elapsed = Date.now() - handlerStartTime;
-        const remainingSafeMs = Math.max(5000, 48000 - elapsed);
-        const pollResult = await pollSnapshotUntilReady(snapshotId, apiKey, remainingSafeMs);
+        const pollResult = await pollSnapshotUntilReady(snapshotId, apiKey, handlerStartTime, 22000);
 
         if (pollResult.isReady) {
           profileResultData = pollResult.data;
@@ -590,14 +652,12 @@ export default async function handler(req: any, res: any) {
     // =========================================================================
     const rawPostsList: any[] = record.posts || record.latest_posts || record.recent_posts || [];
 
-    // Sort all available raw posts by date descending
     const sortedRawPosts = [...rawPostsList].sort((a: any, b: any) => {
       const timeA = new Date(a.datetime || a.date || a.timestamp || a.created_at || 0).getTime();
       const timeB = new Date(b.datetime || b.date || b.timestamp || b.created_at || 0).getTime();
       return timeB - timeA;
     });
 
-    // 3 months cutoff (90 days)
     const threeMonthsMs = 90 * 24 * 60 * 60 * 1000;
     const cutoffTime = Date.now() - threeMonthsMs;
 
@@ -606,7 +666,6 @@ export default async function handler(req: any, res: any) {
       return pTime > 0 && pTime >= cutoffTime;
     });
 
-    // Pick within 3-month posts (up to max 30); if none within 3 months, pick max 30 recent posts
     let selectedRawPosts: any[] = [];
     if (postsWithin3Months.length > 0) {
       selectedRawPosts = postsWithin3Months.slice(0, 30);
@@ -617,16 +676,51 @@ export default async function handler(req: any, res: any) {
     // =========================================================================
     // STEP 3: CHECK SNAPSHOTS IN BRIGHT DATA DASHBOARD FOR EACH POST
     // =========================================================================
-    // Load existing post snapshots from Bright Data dashboard within expiryDays
+    let postSnapshotIdUsed = providedPostsSnapshotId || "";
+
+    // If client supplied a specific posts_snapshot_id on retry:
+    if (providedPostsSnapshotId) {
+      const checkProg = await checkSpecificSnapshot(providedPostsSnapshotId, apiKey, expiryDays);
+      if (checkProg && checkProg.status === "ready") {
+        await indexPostSnapshot(providedPostsSnapshotId, apiKey);
+      } else if (checkProg && (checkProg.status === "running" || checkProg.status === "starting")) {
+        const remainingBudget = Math.max(0, (GLOBAL_SAFE_TIMEOUT_MS - 4000) - (Date.now() - handlerStartTime));
+        if (remainingBudget >= 8000) {
+          const pollRes = await pollSnapshotUntilReady(providedPostsSnapshotId, apiKey, handlerStartTime, remainingBudget);
+          if (pollRes.isReady) {
+            await indexPostSnapshot(providedPostsSnapshotId, apiKey);
+          } else {
+            return res.status(200).json({
+              success: false,
+              status: "processing",
+              step: "posts",
+              snapshot_id: matchedProfileSnapshotId,
+              posts_snapshot_id: providedPostsSnapshotId,
+              username,
+              message: `Bright Data post metrics collection in progress (${providedPostsSnapshotId}). Continuing polling...`,
+            });
+          }
+        } else {
+          return res.status(200).json({
+            success: false,
+            status: "processing",
+            step: "posts",
+            snapshot_id: matchedProfileSnapshotId,
+            posts_snapshot_id: providedPostsSnapshotId,
+            username,
+            message: `Bright Data post metrics collection in progress (${providedPostsSnapshotId}). Continuing polling...`,
+          });
+        }
+      }
+    }
+
+    // Scan recent post snapshots if plenty of safe time is still available
     let runningPostSnapshots: string[] = [];
-    if (!forceRefresh) {
+    if (!forceRefresh && (Date.now() - handlerStartTime < 18000)) {
       runningPostSnapshots = await indexExistingPostSnapshotsFromDashboard(apiKey, expiryDays);
     }
 
-    // For each of the selected posts, check if already in postSnapshotCache
-    const resolvedPosts: ScrapedPost[] = [];
     const missingUrls: string[] = [];
-
     for (let idx = 0; idx < selectedRawPosts.length; idx++) {
       const p = selectedRawPosts[idx];
       const sc = extractShortcode(p.url) || extractShortcode(p.id) || p.shortcode || p.id;
@@ -636,29 +730,22 @@ export default async function handler(req: any, res: any) {
         (sc ? postSnapshotCache.get(sc.toLowerCase()) : null) ||
         (directUrl ? postSnapshotCache.get(directUrl.toLowerCase()) : null);
 
-      if (cached && !forceRefresh) {
-        resolvedPosts.push(cached);
-      } else {
-        if (directUrl) {
-          missingUrls.push(directUrl);
-        }
+      if (!cached || forceRefresh) {
+        if (directUrl) missingUrls.push(directUrl);
       }
     }
 
     // =========================================================================
     // STEP 4: SCRAPE MISSING POSTS IF NOT IN DASHBOARD SNAPSHOT
     // =========================================================================
-    let postSnapshotIdUsed = "";
     let newlyScrapedCount = 0;
 
-    if (missingUrls.length > 0) {
+    if (missingUrls.length > 0 && !postSnapshotIdUsed) {
       let activePostSnapshotId = "";
 
-      // Check if a running snapshot is already in progress
       if (runningPostSnapshots.length > 0 && !forceRefresh) {
         activePostSnapshotId = runningPostSnapshots[0];
       } else {
-        // Trigger post scraper for missing URLs
         const postScrapeUrl = `https://api.brightdata.com/datasets/v3/scrape?dataset_id=${POST_DATASET_ID}&notify=false&include_errors=true`;
         const postPayload = {
           input: missingUrls.map((u) => ({ url: u })),
@@ -671,6 +758,7 @@ export default async function handler(req: any, res: any) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(postPayload),
+          signal: AbortSignal.timeout(7000),
         });
 
         if (postResponse.ok) {
@@ -679,7 +767,6 @@ export default async function handler(req: any, res: any) {
           if (postResult && postResult.snapshot_id) {
             activePostSnapshotId = postResult.snapshot_id;
           } else if (Array.isArray(postResult)) {
-            // Immediate synchronous return
             for (let i = 0; i < postResult.length; i++) {
               const item = postResult[i];
               const normalized = normalizeRawPost(item, i);
@@ -692,12 +779,24 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      // If async snapshot triggered or running: poll it
       if (activePostSnapshotId) {
         postSnapshotIdUsed = activePostSnapshotId;
-        const elapsed = Date.now() - handlerStartTime;
-        const remainingSafeMs = Math.max(5000, 48000 - elapsed);
-        const pollResult = await pollSnapshotUntilReady(activePostSnapshotId, apiKey, remainingSafeMs);
+        const remainingBudget = Math.max(0, (GLOBAL_SAFE_TIMEOUT_MS - 4000) - (Date.now() - handlerStartTime));
+
+        // If time budget is tight (< 12s), return processing status immediately to avoid Vercel timeout!
+        if (remainingBudget < 12000) {
+          return res.status(200).json({
+            success: false,
+            status: "processing",
+            step: "posts",
+            snapshot_id: matchedProfileSnapshotId,
+            posts_snapshot_id: activePostSnapshotId,
+            username,
+            message: `Bright Data post job started (${activePostSnapshotId}) for ${missingUrls.length} posts. Polling dashboard shortly...`,
+          });
+        }
+
+        const pollResult = await pollSnapshotUntilReady(activePostSnapshotId, apiKey, handlerStartTime, remainingBudget);
 
         const items = Array.isArray(pollResult.data)
           ? pollResult.data
@@ -715,12 +814,12 @@ export default async function handler(req: any, res: any) {
           }
           indexedPostSnapshots.add(activePostSnapshotId);
         } else if (!pollResult.isReady) {
-          // Still processing on Bright Data: return processing status before Vercel timeout
           return res.status(200).json({
             success: false,
             status: "processing",
             step: "posts",
-            snapshot_id: activePostSnapshotId,
+            snapshot_id: matchedProfileSnapshotId,
+            posts_snapshot_id: activePostSnapshotId,
             username,
             message: `Bright Data is collecting metrics for ${missingUrls.length} posts (snapshot ${activePostSnapshotId}). Polling dashboard...`,
           });
