@@ -74,17 +74,22 @@ export function App() {
     return runEvaluation(activeDataset.profile, activeDataset.posts, config);
   }, [activeDataset, config]);
 
-  // Scrape handler calling backend /api/scrape endpoint (uses .env directly)
-  const handleScrapeUsername = async (rawHandle: string) => {
+  // Scrape handler calling backend /api/scrape endpoint (checks cache/<user>.json first)
+  const handleScrapeUsername = async (rawHandle: string, forceRefresh: boolean = false) => {
     const cleanUser = rawHandle.trim().toLowerCase().replace(/^@/, "");
     if (!cleanUser) return;
 
     setIsScraping(true);
     setScrapingError(null);
-    setScrapingStatus(`Querying Bright Data Instagram scraper for @${cleanUser}...`);
+    setScrapingStatus(
+      forceRefresh
+        ? `Force scraping live data from Bright Data API for @${cleanUser}...`
+        : `Checking local disk JSON cache (cache/${cleanUser}.json)...`
+    );
 
     try {
-      const response = await fetch(`/api/scrape?username=${encodeURIComponent(cleanUser)}`, {
+      const url = `/api/scrape?username=${encodeURIComponent(cleanUser)}${forceRefresh ? "&force_refresh=true" : ""}`;
+      const response = await fetch(url, {
         method: "GET",
       });
 
@@ -112,10 +117,10 @@ export function App() {
       // Select this creator immediately
       setSelectedCreatorId(cleanUser);
       setShowSearchModal(false);
-      setScrapingStatus("Evaluation ready!");
+      setScrapingStatus(data.cache_message || "Evaluation ready!");
     } catch (err: any) {
       console.error("Scraping error:", err);
-      setScrapingError(err.message || "Failed to scrape profile. Please check the username or network.");
+      setScrapingError(err.message || "Failed to retrieve profile. Please check the username or network.");
     } finally {
       setIsScraping(false);
     }
