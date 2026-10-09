@@ -10,6 +10,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export const maxDuration = 60; // Allow up to 60s for live Bright Data discovery polling on Vercel Hobby tier
+
 interface ScrapedPost {
   post_id: string;
   date: string;
@@ -21,6 +23,26 @@ interface ScrapedPost {
   caption?: string;
   image_url?: string;
   url?: string;
+}
+
+/**
+ * Configure Edge CDN headers for Vercel's Global Edge Network.
+ * On Vercel Free Tier, Edge Caching is completely free and serves responses in ~20ms
+ * without invoking serverless compute or incurring Bright Data API calls.
+ */
+function setCdnCacheHeaders(res: any, daysLeft: number, forceRefresh: boolean = false): void {
+  if (forceRefresh) {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("CDN-Cache-Control", "no-store");
+    res.setHeader("Vercel-CDN-Cache-Control", "no-store");
+  } else {
+    // s-maxage directs Vercel Edge CDN to store the response globally at edge PoPs
+    const sMaxAge = Math.max(3600, Math.floor(daysLeft * 86400));
+    const swr = 86400; // 1-day stale-while-revalidate window
+    res.setHeader("Cache-Control", `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}`);
+    res.setHeader("CDN-Cache-Control", `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}`);
+    res.setHeader("Vercel-CDN-Cache-Control", `public, s-maxage=${sMaxAge}, stale-while-revalidate=${swr}`);
+  }
 }
 
 function resolveApiKey(): string {
@@ -225,6 +247,7 @@ export default async function handler(req: any, res: any) {
       req.body?.force_refresh === true;
 
     if (!username) {
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       return res.status(400).json({
         error: "Missing username parameter. Please provide an Instagram username without '@'.",
       });
@@ -236,6 +259,7 @@ export default async function handler(req: any, res: any) {
     const cacheCheck = readLocalCache(username, expiryDays);
 
     if (!forceRefresh && cacheCheck.exists && !cacheCheck.isExpired && cacheCheck.data) {
+      setCdnCacheHeaders(res, cacheCheck.daysLeft || expiryDays, false);
       const msg = `[CACHE HIT - Local] @${username} loaded from disk cache (age: ${cacheCheck.ageDays}d, TTL: ${cacheCheck.daysLeft}d left). 0 network calls, $0 cost.`;
       return res.status(200).json(
         formatResponse(cacheCheck.data, username, "local_cache", cacheCheck.ageDays, cacheCheck.daysLeft, msg)
@@ -248,11 +272,13 @@ export default async function handler(req: any, res: any) {
     if (!apiKey) {
       if (cacheCheck.exists && cacheCheck.data) {
         // Fallback to existing disk cache if API key is not present
+        setCdnCacheHeaders(res, cacheCheck.daysLeft || 1, false);
         const msg = `[FALLBACK - Local Cache] API key missing; loaded existing disk record for @${username}.`;
         return res.status(200).json(
           formatResponse(cacheCheck.data, username, "local_cache", cacheCheck.ageDays, cacheCheck.daysLeft, msg)
         );
       }
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       return res.status(500).json({
         error: "Bright Data API Key is not set in .env. Please set BRIGHTDATA_API_KEY.",
       });
@@ -278,6 +304,7 @@ export default async function handler(req: any, res: any) {
       });
     } catch (networkErr: any) {
       if (cacheCheck.exists && cacheCheck.data) {
+        setCdnCacheHeaders(res, cacheCheck.daysLeft || 1, false);
         const msg = `[FALLBACK - Local Cache] Network error contacting Bright Data; loaded existing cache for @${username}.`;
         return res.status(200).json(
           formatResponse(cacheCheck.data, username, "local_cache", cacheCheck.ageDays, cacheCheck.daysLeft, msg)
@@ -290,11 +317,13 @@ export default async function handler(req: any, res: any) {
       const errText = await scrapeResponse.text();
       // If live scrape fails but we have disk cache, fallback gracefully
       if (cacheCheck.exists && cacheCheck.data) {
+        setCdnCacheHeaders(res, cacheCheck.daysLeft || 1, false);
         const msg = `[FALLBACK - Local Cache] Bright Data API returned status ${scrapeResponse.status}; loaded existing cache for @${username}.`;
         return res.status(200).json(
           formatResponse(cacheCheck.data, username, "local_cache", cacheCheck.ageDays, cacheCheck.daysLeft, msg)
         );
       }
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       return res.status(scrapeResponse.status).json({
         error: `Bright Data API Error (${scrapeResponse.status}): ${errText}`,
       });
@@ -344,11 +373,13 @@ export default async function handler(req: any, res: any) {
     const record = Array.isArray(resultData) ? resultData[0] : resultData;
     if (!record || record.error) {
       if (cacheCheck.exists && cacheCheck.data) {
+        setCdnCacheHeaders(res, cacheCheck.daysLeft || 1, false);
         const msg = `[FALLBACK - Local Cache] Account temporarily unavailable on Instagram; loaded disk cache for @${username}.`;
         return res.status(200).json(
           formatResponse(cacheCheck.data, username, "local_cache", cacheCheck.ageDays, cacheCheck.daysLeft, msg)
         );
       }
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       return res.status(404).json({
         error: record?.error || `No Instagram profile found for @${username}. The user might be private or inactive.`,
       });
@@ -397,6 +428,7 @@ export default async function handler(req: any, res: any) {
 
     // 6. SAVE TO DISK CACHE (TTL = expiryDays from .env)
     saveLocalCache(username, normalizedProfile, normalizedPosts, expiryDays, "brightdata_live");
+    setCdnCacheHeaders(res, expiryDays, forceRefresh);
 
     const liveMsg = `Live scraped via Bright Data API and saved to cache/${username}.json (TTL: ${expiryDays} days).`;
     return res.status(200).json(
@@ -411,6 +443,7 @@ export default async function handler(req: any, res: any) {
     );
   } catch (err: any) {
     console.error("Scrape handler error:", err);
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     return res.status(500).json({
       error: err.message || "An unexpected error occurred during Instagram scraping.",
     });

@@ -11,7 +11,8 @@ function devApiPlugin() {
         try {
           const url = new URL(req.url, 'http://localhost')
           const username = url.searchParams.get('username') || ''
-          req.query = { username }
+          const forceRefresh = url.searchParams.get('force_refresh') === 'true'
+          req.query = { username, force_refresh: forceRefresh }
 
           res.status = (code: number) => {
             res.statusCode = code
