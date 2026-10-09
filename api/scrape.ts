@@ -261,6 +261,34 @@ function normalizeRawPost(item: any, fallbackIndex: number = 0): ScrapedPost {
 }
 
 /**
+ * Safely parses Bright Data responses which may be formatted as:
+ * 1. Standard JSON object / array
+ * 2. Newline-Delimited JSON (NDJSON / JSONL) where multiple JSON objects are separated by newlines
+ */
+function parseBrightDataResponse(text: string): any {
+  if (!text || !text.trim()) return null;
+  const trimmed = text.trim();
+
+  try {
+    return JSON.parse(trimmed);
+  } catch (err: any) {
+    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const results: any[] = [];
+    for (const line of lines) {
+      try {
+        results.push(JSON.parse(line));
+      } catch {
+        // Skip unparseable lines
+      }
+    }
+    if (results.length > 0) {
+      return results;
+    }
+    throw err;
+  }
+}
+
+/**
  * Indexes a post snapshot into our memory cache
  */
 async function indexPostSnapshot(snapshotId: string, apiKey: string): Promise<number> {
@@ -275,12 +303,14 @@ async function indexPostSnapshot(snapshotId: string, apiKey: string): Promise<nu
 
     if (!res.ok) return 0;
 
-    const data = await res.json();
-    if (!Array.isArray(data)) return 0;
+    const text = await res.text();
+    const data = parseBrightDataResponse(text);
+    const items = Array.isArray(data) ? data : data ? [data] : [];
+    if (items.length === 0) return 0;
 
     let count = 0;
-    for (let i = 0; i < data.length; i++) {
-      const item = data[i];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       const normalized = normalizeRawPost(item, i);
       const sc = normalized.post_id || extractShortcode(normalized.url);
       if (sc) {
@@ -368,7 +398,8 @@ async function pollSnapshotUntilReady(
             signal: AbortSignal.timeout(7000),
           });
           if (downloadRes.ok) {
-            const data = await downloadRes.json();
+            const text = await downloadRes.text();
+            const data = parseBrightDataResponse(text);
             return { isReady: true, data };
           }
         } else if (progData.status === "failed" || progData.status === "cancelled") {
@@ -457,7 +488,8 @@ export default async function handler(req: any, res: any) {
           });
 
           if (downloadRes.ok) {
-            profileResultData = await downloadRes.json();
+            const text = await downloadRes.text();
+            profileResultData = parseBrightDataResponse(text);
             isProfileCacheHit = true;
           }
         } else {
@@ -508,7 +540,8 @@ export default async function handler(req: any, res: any) {
         });
       }
 
-      profileResultData = await scrapeResponse.json();
+      const scrapeResponseText = await scrapeResponse.text();
+      profileResultData = parseBrightDataResponse(scrapeResponseText);
 
       if (profileResultData && !Array.isArray(profileResultData) && profileResultData.snapshot_id) {
         const snapshotId = profileResultData.snapshot_id;
@@ -641,7 +674,8 @@ export default async function handler(req: any, res: any) {
         });
 
         if (postResponse.ok) {
-          const postResult: any = await postResponse.json();
+          const postText = await postResponse.text();
+          const postResult: any = parseBrightDataResponse(postText);
           if (postResult && postResult.snapshot_id) {
             activePostSnapshotId = postResult.snapshot_id;
           } else if (Array.isArray(postResult)) {
@@ -665,9 +699,14 @@ export default async function handler(req: any, res: any) {
         const remainingSafeMs = Math.max(5000, 48000 - elapsed);
         const pollResult = await pollSnapshotUntilReady(activePostSnapshotId, apiKey, remainingSafeMs);
 
-        if (pollResult.isReady && Array.isArray(pollResult.data)) {
-          for (let i = 0; i < pollResult.data.length; i++) {
-            const item = pollResult.data[i];
+        const items = Array.isArray(pollResult.data)
+          ? pollResult.data
+          : pollResult.data
+          ? [pollResult.data]
+          : [];
+        if (pollResult.isReady && items.length > 0) {
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
             const normalized = normalizeRawPost(item, i);
             const sc = normalized.post_id || extractShortcode(normalized.url);
             if (sc) postSnapshotCache.set(sc.toLowerCase(), normalized);
