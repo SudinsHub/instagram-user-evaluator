@@ -71,20 +71,26 @@ export function App() {
   }, [activeDataset, config]);
 
   // Scrape handler calling backend /api/scrape endpoint
-  const handleScrapeUsername = async (rawHandle: string, forceRefresh: boolean = false) => {
+  const handleScrapeUsername = async (
+    rawHandle: string,
+    forceRefresh: boolean = false,
+    retryCount: number = 0
+  ) => {
     const cleanUser = rawHandle.trim().toLowerCase().replace(/^@/, "");
     if (!cleanUser) return;
 
     setIsScraping(true);
     setScrapingError(null);
     setScrapingStatus(
-      forceRefresh
+      retryCount > 0
+        ? `Polling completed snapshot from Bright Data dashboard for @${cleanUser}... (attempt ${retryCount + 1})`
+        : forceRefresh
         ? `Force scraping live data from Bright Data API for @${cleanUser}...`
         : `Checking Bright Data dashboard for existing snapshot for @${cleanUser}...`
     );
 
     try {
-      const url = `/api/scrape?username=${encodeURIComponent(cleanUser)}${forceRefresh ? "&force_refresh=true" : ""}`;
+      const url = `/api/scrape?username=${encodeURIComponent(cleanUser)}${forceRefresh && retryCount === 0 ? "&force_refresh=true" : ""}`;
       const response = await fetch(url, {
         method: "GET",
       });
@@ -95,8 +101,20 @@ export function App() {
         throw new Error(data.error || `Scrape failed with status ${response.status}`);
       }
 
+      // If Bright Data snapshot is still being collected, auto-retry seamlessly before timeout
+      if (data.status === "processing" && retryCount < 5) {
+        setScrapingStatus(
+          data.message ||
+            `Scrape in progress on Bright Data (snapshot ${data.snapshot_id || ""}). Polling completed snapshot in 5s...`
+        );
+        setTimeout(() => {
+          handleScrapeUsername(cleanUser, false, retryCount + 1);
+        }, 5000);
+        return;
+      }
+
       if (!data.profile) {
-        throw new Error(`No profile data returned for @${cleanUser}`);
+        throw new Error(data.message || `No profile data returned for @${cleanUser}`);
       }
 
       // Store in scraped datasets
@@ -114,10 +132,10 @@ export function App() {
       setSelectedCreatorId(cleanUser);
       setShowSearchModal(false);
       setScrapingStatus(data.cache_message || "Evaluation ready!");
+      setIsScraping(false);
     } catch (err: any) {
       console.error("Scraping error:", err);
       setScrapingError(err.message || "Failed to retrieve profile. Please check the username or network.");
-    } finally {
       setIsScraping(false);
     }
   };
