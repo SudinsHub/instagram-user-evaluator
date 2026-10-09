@@ -1,13 +1,10 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, Sparkles, AlertCircle, RefreshCw, HardDrive } from "lucide-react";
-import { CachedProfileItem } from "@/types/evaluator";
+import { Search, Loader2, Sparkles, AlertCircle, RefreshCw, Database } from "lucide-react";
 
 interface UsernameSearchHeroProps {
   onScrapeUsername: (username: string, forceRefresh?: boolean) => Promise<void>;
-  onSelectCachedProfile: (username: string) => void;
-  cachedProfiles: CachedProfileItem[];
   isLoading: boolean;
   statusMessage: string;
   errorMessage: string | null;
@@ -15,8 +12,6 @@ interface UsernameSearchHeroProps {
 
 export function UsernameSearchHero({
   onScrapeUsername,
-  onSelectCachedProfile,
-  cachedProfiles = [],
   isLoading,
   statusMessage,
   errorMessage,
@@ -41,18 +36,18 @@ export function UsernameSearchHero({
             <h2 className="text-base sm:text-lg font-bold tracking-tight text-foreground flex items-center space-x-2">
               <span>Audit Any Instagram Creator</span>
               <Badge variant="outline" className="text-[10px] font-mono">
-                Smart JSON Cache Enabled
+                Dashboard Snapshot Cache
               </Badge>
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Enter any public Instagram handle. Checks local disk JSON cache (<code className="bg-muted px-1 py-0.5 rounded font-mono">cache/&lt;user&gt;.json</code>) first for instant $0 load before calling Bright Data.
+              Enter any public Instagram handle. Automatically retrieves existing snapshots from the Bright Data dashboard if scraped within <code className="bg-muted px-1 py-0.5 rounded font-mono">CACHE_EXPIRY_DAYS</code> (0 re-scraping cost).
             </p>
           </div>
 
-          {/* Disk Cache Indicator */}
+          {/* Dashboard Cache Indicator */}
           <div className="flex items-center space-x-1.5 text-xs text-muted-foreground shrink-0">
-            <HardDrive className="h-3.5 w-3.5 text-emerald-500" />
-            <span className="text-[11px] font-medium">Disk Cache Active</span>
+            <Database className="h-3.5 w-3.5 text-sky-500" />
+            <span className="text-[11px] font-medium">Bright Data Cache Active</span>
           </div>
         </div>
 
@@ -65,7 +60,7 @@ export function UsernameSearchHero({
               </span>
               <input
                 type="text"
-                placeholder="Enter Instagram username (e.g. cristiano, zuck, mkbhd, ___yukiii_____...)"
+                placeholder="Enter Instagram username (e.g. cristiano, zuck, mkbhd, shahnur_shourov...)"
                 value={handle}
                 onChange={(e) => setHandle(e.target.value)}
                 disabled={isLoading}
@@ -103,7 +98,7 @@ export function UsernameSearchHero({
             />
             <label htmlFor="forceRefreshCheck" className="cursor-pointer select-none flex items-center space-x-1">
               <RefreshCw className="h-3 w-3 text-muted-foreground" />
-              <span>Force live scrape (bypass local <code className="font-mono">cache/&lt;user&gt;.json</code>)</span>
+              <span>Force live re-scrape (bypass Bright Data dashboard snapshot cache)</span>
             </label>
           </div>
         </form>
@@ -112,7 +107,7 @@ export function UsernameSearchHero({
         {isLoading && (
           <div className="flex items-center space-x-2 rounded-lg bg-primary/5 border border-primary/20 p-3 text-xs text-primary animate-pulse">
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-            <span className="font-mono text-[11px]">{statusMessage || "Checking local disk cache..."}</span>
+            <span className="font-mono text-[11px]">{statusMessage || "Checking Bright Data dashboard for existing snapshot..."}</span>
           </div>
         )}
 
@@ -124,29 +119,6 @@ export function UsernameSearchHero({
               <div className="font-semibold">Notice</div>
               <p className="text-[11px] leading-relaxed">{errorMessage}</p>
             </div>
-          </div>
-        )}
-
-        {/* Cached Profiles Quick Chips */}
-        {cachedProfiles.length > 0 && (
-          <div className="pt-2 border-t flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-[11px] text-muted-foreground mr-1 flex items-center space-x-1">
-              <HardDrive className="h-3 w-3 text-emerald-500" />
-              <span>Cached in /cache directory:</span>
-            </span>
-            {cachedProfiles.map((item) => (
-              <button
-                key={item.username}
-                type="button"
-                onClick={() => onSelectCachedProfile(item.username)}
-                disabled={isLoading}
-                className="rounded-md border border-input bg-background/50 hover:bg-muted/80 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer flex items-center space-x-1"
-                title={`${item.followers.toLocaleString()} followers, ${item.posts_count} posts, cached ${item.age_days}d ago`}
-              >
-                <span>@{item.username}</span>
-                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono">({item.age_days}d)</span>
-              </button>
-            ))}
           </div>
         )}
       </div>

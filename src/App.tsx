@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { DEFAULT_CONFIG, PRESET_CONFIGS } from "@/lib/defaults";
 import { runEvaluation } from "@/lib/evaluator";
-import { ReachConfig, CreatorDataset, CachedProfileItem } from "@/types/evaluator";
+import { ReachConfig, CreatorDataset } from "@/types/evaluator";
 import { Header } from "@/components/Header";
 import { ParametersSidebar } from "@/components/ParametersSidebar";
 import { ScorecardOverview } from "@/components/ScorecardOverview";
@@ -44,10 +44,7 @@ export function App() {
   const [scrapingStatus, setScrapingStatus] = useState("");
   const [scrapingError, setScrapingError] = useState<string | null>(null);
 
-  // Real cached profiles list discovered from /cache directory
-  const [cachedProfiles, setCachedProfiles] = useState<CachedProfileItem[]>([]);
-
-  // In-memory active datasets (loaded from /cache or live Bright Data scraping)
+  // In-memory active datasets (loaded from Bright Data dashboard snapshot or live scraping)
   const [scrapedDatasets, setScrapedDatasets] = useState<Record<string, CreatorDataset>>({});
 
   // Sync dark mode class on root html
@@ -58,25 +55,6 @@ export function App() {
       document.documentElement.classList.remove("dark");
     }
   }, [darkMode]);
-
-  // Discover real cached profiles on initial render
-  const fetchCachedProfiles = async () => {
-    try {
-      const response = await fetch("/api/cached-profiles");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.cachedProfiles && Array.isArray(data.cachedProfiles)) {
-          setCachedProfiles(data.cachedProfiles);
-        }
-      }
-    } catch (err) {
-      console.warn("Could not load cached profiles:", err);
-    }
-  };
-
-  useEffect(() => {
-    fetchCachedProfiles();
-  }, []);
 
   // Pool of available datasets
   const allDatasets = useMemo(() => {
@@ -92,7 +70,7 @@ export function App() {
     return runEvaluation(activeDataset.profile, activeDataset.posts, config);
   }, [activeDataset, config]);
 
-  // Scrape handler calling backend /api/scrape endpoint (checks cache/<user>.json first)
+  // Scrape handler calling backend /api/scrape endpoint
   const handleScrapeUsername = async (rawHandle: string, forceRefresh: boolean = false) => {
     const cleanUser = rawHandle.trim().toLowerCase().replace(/^@/, "");
     if (!cleanUser) return;
@@ -102,7 +80,7 @@ export function App() {
     setScrapingStatus(
       forceRefresh
         ? `Force scraping live data from Bright Data API for @${cleanUser}...`
-        : `Checking local disk JSON cache (cache/${cleanUser}.json)...`
+        : `Checking Bright Data dashboard for existing snapshot for @${cleanUser}...`
     );
 
     try {
@@ -136,9 +114,6 @@ export function App() {
       setSelectedCreatorId(cleanUser);
       setShowSearchModal(false);
       setScrapingStatus(data.cache_message || "Evaluation ready!");
-
-      // Refresh cached profiles list from disk
-      fetchCachedProfiles();
     } catch (err: any) {
       console.error("Scraping error:", err);
       setScrapingError(err.message || "Failed to retrieve profile. Please check the username or network.");
@@ -147,7 +122,7 @@ export function App() {
     }
   };
 
-  // Creator selection handler: loads immediately if in memory, or triggers cache-read from /api/scrape
+  // Creator selection handler: loads immediately if in memory, or triggers /api/scrape
   const handleSelectCreator = (username: string) => {
     const clean = username.trim().toLowerCase().replace(/^@/, "");
     if (!clean) {
@@ -184,7 +159,6 @@ export function App() {
       <Header
         selectedCreatorId={selectedCreatorId}
         onSelectCreator={handleSelectCreator}
-        cachedProfiles={cachedProfiles}
         activeCreator={activeDataset ? activeDataset.profile : null}
         onResetDefaults={handleResetDefaults}
         onApplyPreset={handleApplyPreset}
@@ -208,21 +182,16 @@ export function App() {
         {/* Right: Results & Analysis Workspace */}
         <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto space-y-6 max-h-[calc(100vh-4rem)] pb-24 lg:pb-6">
           {!activeDataset || !evaluationResult ? (
-            /* Empty State: Live Username Scraper + Real Cached Profiles Selection */
+            /* Empty State: Live Username Scraper */
             <div className="space-y-6 max-w-4xl mx-auto py-2">
               <UsernameSearchHero
                 onScrapeUsername={handleScrapeUsername}
-                onSelectCachedProfile={handleSelectCreator}
-                cachedProfiles={cachedProfiles}
                 isLoading={isScraping}
                 statusMessage={scrapingStatus}
                 errorMessage={scrapingError}
               />
 
-              <EmptyProfileState
-                onSelectCreator={handleSelectCreator}
-                cachedProfiles={cachedProfiles}
-              />
+              <EmptyProfileState onSelectCreator={handleSelectCreator} />
             </div>
           ) : (
             /* Active Creator Evaluation Workspace */
@@ -245,7 +214,7 @@ export function App() {
                     className="text-xs space-x-1.5 h-8"
                   >
                     <Search className="h-3.5 w-3.5" />
-                    <span>Scrape Another Username</span>
+                    <span>Evaluate Another Username</span>
                   </Button>
                 </div>
               </div>
@@ -254,8 +223,6 @@ export function App() {
               {showSearchModal && (
                 <UsernameSearchHero
                   onScrapeUsername={handleScrapeUsername}
-                  onSelectCachedProfile={handleSelectCreator}
-                  cachedProfiles={cachedProfiles}
                   isLoading={isScraping}
                   statusMessage={scrapingStatus}
                   errorMessage={scrapingError}

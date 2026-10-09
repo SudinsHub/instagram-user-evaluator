@@ -93,18 +93,6 @@ export interface CreatorDataset {
   posts: CreatorPost[];
 }
 
-export interface CachedProfileItem {
-  username: string;
-  full_name: string;
-  followers: number;
-  following: number;
-  posts_count: number;
-  is_verified: boolean;
-  is_private: boolean;
-  cached_at: string;
-  age_days: number;
-  days_left: number;
-}
 
 export interface PostStats {
   num_posts_used: number;

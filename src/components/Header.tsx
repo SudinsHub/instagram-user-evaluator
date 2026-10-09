@@ -1,7 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CreatorProfile, CachedProfileItem } from "@/types/evaluator";
+import { CreatorProfile } from "@/types/evaluator";
 import { PRESET_CONFIGS } from "@/lib/defaults";
 import {
   RotateCcw,
@@ -12,13 +12,11 @@ import {
   ChevronDown,
   Sparkles,
   SlidersHorizontal,
-  HardDrive,
 } from "lucide-react";
 
 interface HeaderProps {
   selectedCreatorId: string;
   onSelectCreator: (id: string) => void;
-  cachedProfiles: CachedProfileItem[];
   activeCreator: CreatorProfile | null;
   onResetDefaults: () => void;
   onApplyPreset: (presetKey: string) => void;
@@ -30,9 +28,6 @@ interface HeaderProps {
 }
 
 export function Header({
-  selectedCreatorId,
-  onSelectCreator,
-  cachedProfiles = [],
   activeCreator,
   onResetDefaults,
   onApplyPreset,
@@ -91,31 +86,20 @@ export function Header({
           </div>
         </div>
 
-        {/* Center / Cached Profiles Selector */}
-        <div className="flex items-center space-x-2 w-full sm:w-auto">
-          <span className="text-xs text-muted-foreground hidden lg:inline shrink-0 flex items-center space-x-1">
-            <HardDrive className="h-3.5 w-3.5 text-emerald-500 inline mr-1" />
-            <span>Cached Profile:</span>
-          </span>
-          <div className="relative w-full sm:w-72">
-            <select
-              value={selectedCreatorId}
-              onChange={(e) => onSelectCreator(e.target.value)}
-              className="w-full h-8 sm:h-9 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
-            >
-              <option value="">
-                {cachedProfiles.length > 0
-                  ? `-- Select Cached Profile (${cachedProfiles.length} in /cache) --`
-                  : "-- No Cached Profiles Found (/cache) --"}
-              </option>
-              {cachedProfiles.map((item) => (
-                <option key={item.username} value={item.username}>
-                  @{item.username} ({item.followers ? `${item.followers.toLocaleString()} fol` : "Profile"} • {item.posts_count} posts • {item.age_days}d old)
-                </option>
-              ))}
-            </select>
+        {/* Center: Active Creator Handle Pill (if loaded) */}
+        {activeCreator && (
+          <div className="flex items-center space-x-2 text-xs">
+            <span className="text-muted-foreground hidden md:inline">Auditing:</span>
+            <span className="font-mono font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-md border border-primary/20">
+              @{activeCreator.username}
+            </span>
+            {activeCreator.followers > 0 && (
+              <span className="text-[11px] text-muted-foreground hidden lg:inline">
+                ({activeCreator.followers.toLocaleString()} followers)
+              </span>
+            )}
           </div>
-        </div>
+        )}
 
         {/* Right Actions (Desktop) */}
         <div className="hidden sm:flex items-center space-x-2 shrink-0">
