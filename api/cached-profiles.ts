@@ -4,8 +4,8 @@
  * No mock data: purely discovers real cached JSON files.
  */
 
-import fs from "node:fs";
-import path from "node:path";
+import fs from "fs";
+import path from "path";
 
 export interface CachedProfileSummary {
   username: string;

@@ -60,7 +60,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), devApiPlugin()],
-    base: './',
+    base: '/',
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -2,18 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "functions": {
-    "api/scrape.ts": {
+    "api/*.ts": {
       "maxDuration": 60,
       "memory": 1024
     }
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
+      "source": "/((?!assets/|favicon|.*\\..*).*)",
       "destination": "/index.html"
     }
   ]

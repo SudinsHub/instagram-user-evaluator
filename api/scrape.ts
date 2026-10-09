@@ -7,8 +7,8 @@
  * 4. Saves all newly scraped records to cache/<username>.json with TTL metadata.
  */
 
-import fs from "node:fs";
-import path from "node:path";
+import fs from "fs";
+import path from "path";
 
 export const maxDuration = 60; // Allow up to 60s for live Bright Data discovery polling on Vercel Hobby tier
 
