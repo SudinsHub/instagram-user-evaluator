@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Loader2, Sparkles, AlertCircle, RefreshCw, HardDrive } from "lucide-react";
-import { CREATOR_DATASETS } from "@/data/mockProfiles";
+import { CachedProfileItem } from "@/types/evaluator";
 
 interface UsernameSearchHeroProps {
   onScrapeUsername: (username: string, forceRefresh?: boolean) => Promise<void>;
-  onSelectArchetype: (id: string) => void;
+  onSelectCachedProfile: (username: string) => void;
+  cachedProfiles: CachedProfileItem[];
   isLoading: boolean;
   statusMessage: string;
   errorMessage: string | null;
@@ -14,7 +15,8 @@ interface UsernameSearchHeroProps {
 
 export function UsernameSearchHero({
   onScrapeUsername,
-  onSelectArchetype,
+  onSelectCachedProfile,
+  cachedProfiles = [],
   isLoading,
   statusMessage,
   errorMessage,
@@ -125,24 +127,28 @@ export function UsernameSearchHero({
           </div>
         )}
 
-        {/* Sample Archetypes Quick Chips */}
-        <div className="pt-2 border-t flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-[11px] text-muted-foreground mr-1 flex items-center space-x-1">
-            <Sparkles className="h-3 w-3 text-amber-500" />
-            <span>Or test preloaded archetypes:</span>
-          </span>
-          {Object.entries(CREATOR_DATASETS).map(([id, data]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onSelectArchetype(id)}
-              disabled={isLoading}
-              className="rounded-md border border-input bg-background/50 hover:bg-muted/80 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer"
-            >
-              @{data.profile.username}
-            </button>
-          ))}
-        </div>
+        {/* Cached Profiles Quick Chips */}
+        {cachedProfiles.length > 0 && (
+          <div className="pt-2 border-t flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-[11px] text-muted-foreground mr-1 flex items-center space-x-1">
+              <HardDrive className="h-3 w-3 text-emerald-500" />
+              <span>Cached in /cache directory:</span>
+            </span>
+            {cachedProfiles.map((item) => (
+              <button
+                key={item.username}
+                type="button"
+                onClick={() => onSelectCachedProfile(item.username)}
+                disabled={isLoading}
+                className="rounded-md border border-input bg-background/50 hover:bg-muted/80 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground font-medium transition-colors cursor-pointer flex items-center space-x-1"
+                title={`${item.followers.toLocaleString()} followers, ${item.posts_count} posts, cached ${item.age_days}d ago`}
+              >
+                <span>@{item.username}</span>
+                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono">({item.age_days}d)</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { DEFAULT_CONFIG, PRESET_CONFIGS } from "@/lib/defaults";
-import { CREATOR_DATASETS, CreatorDataset } from "@/data/mockProfiles";
 import { runEvaluation } from "@/lib/evaluator";
-import { ReachConfig } from "@/types/evaluator";
+import { ReachConfig, CreatorDataset, CachedProfileItem } from "@/types/evaluator";
 import { Header } from "@/components/Header";
 import { ParametersSidebar } from "@/components/ParametersSidebar";
 import { ScorecardOverview } from "@/components/ScorecardOverview";
@@ -45,7 +44,10 @@ export function App() {
   const [scrapingStatus, setScrapingStatus] = useState("");
   const [scrapingError, setScrapingError] = useState<string | null>(null);
 
-  // Dynamic live-scraped datasets storage
+  // Real cached profiles list discovered from /cache directory
+  const [cachedProfiles, setCachedProfiles] = useState<CachedProfileItem[]>([]);
+
+  // In-memory active datasets (loaded from /cache or live Bright Data scraping)
   const [scrapedDatasets, setScrapedDatasets] = useState<Record<string, CreatorDataset>>({});
 
   // Sync dark mode class on root html
@@ -57,12 +59,28 @@ export function App() {
     }
   }, [darkMode]);
 
-  // Combined pool of available datasets (archetypes + live scraped)
+  // Discover real cached profiles on initial render
+  const fetchCachedProfiles = async () => {
+    try {
+      const response = await fetch("/api/cached-profiles");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.cachedProfiles && Array.isArray(data.cachedProfiles)) {
+          setCachedProfiles(data.cachedProfiles);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not load cached profiles:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchCachedProfiles();
+  }, []);
+
+  // Pool of available datasets
   const allDatasets = useMemo(() => {
-    return {
-      ...CREATOR_DATASETS,
-      ...scrapedDatasets,
-    };
+    return scrapedDatasets;
   }, [scrapedDatasets]);
 
   // Active dataset (null if not yet selected)
@@ -118,11 +136,29 @@ export function App() {
       setSelectedCreatorId(cleanUser);
       setShowSearchModal(false);
       setScrapingStatus(data.cache_message || "Evaluation ready!");
+
+      // Refresh cached profiles list from disk
+      fetchCachedProfiles();
     } catch (err: any) {
       console.error("Scraping error:", err);
       setScrapingError(err.message || "Failed to retrieve profile. Please check the username or network.");
     } finally {
       setIsScraping(false);
+    }
+  };
+
+  // Creator selection handler: loads immediately if in memory, or triggers cache-read from /api/scrape
+  const handleSelectCreator = (username: string) => {
+    const clean = username.trim().toLowerCase().replace(/^@/, "");
+    if (!clean) {
+      setSelectedCreatorId("");
+      return;
+    }
+    if (scrapedDatasets[clean]) {
+      setSelectedCreatorId(clean);
+      setShowSearchModal(false);
+    } else {
+      handleScrapeUsername(clean, false);
     }
   };
 
@@ -147,7 +183,8 @@ export function App() {
       {/* Top Header */}
       <Header
         selectedCreatorId={selectedCreatorId}
-        onSelectCreator={setSelectedCreatorId}
+        onSelectCreator={handleSelectCreator}
+        cachedProfiles={cachedProfiles}
         activeCreator={activeDataset ? activeDataset.profile : null}
         onResetDefaults={handleResetDefaults}
         onApplyPreset={handleApplyPreset}
@@ -171,17 +208,21 @@ export function App() {
         {/* Right: Results & Analysis Workspace */}
         <main className="flex-1 p-3.5 sm:p-6 overflow-y-auto space-y-6 max-h-[calc(100vh-4rem)] pb-24 lg:pb-6">
           {!activeDataset || !evaluationResult ? (
-            /* Empty State: Live Username Scraper + Archetypes Selection */
+            /* Empty State: Live Username Scraper + Real Cached Profiles Selection */
             <div className="space-y-6 max-w-4xl mx-auto py-2">
               <UsernameSearchHero
                 onScrapeUsername={handleScrapeUsername}
-                onSelectArchetype={setSelectedCreatorId}
+                onSelectCachedProfile={handleSelectCreator}
+                cachedProfiles={cachedProfiles}
                 isLoading={isScraping}
                 statusMessage={scrapingStatus}
                 errorMessage={scrapingError}
               />
 
-              <EmptyProfileState onSelectCreator={setSelectedCreatorId} />
+              <EmptyProfileState
+                onSelectCreator={handleSelectCreator}
+                cachedProfiles={cachedProfiles}
+              />
             </div>
           ) : (
             /* Active Creator Evaluation Workspace */
@@ -191,7 +232,9 @@ export function App() {
                 <div className="flex items-center space-x-2 text-xs">
                   <span className="text-muted-foreground font-medium">Currently viewing:</span>
                   <span className="font-bold text-foreground font-mono">@{activeDataset.profile.username}</span>
-                  <span className="text-muted-foreground text-[10px]">({activeDataset.profile.archetypeTag})</span>
+                  {activeDataset.profile.archetypeTag && (
+                    <span className="text-muted-foreground text-[10px]">({activeDataset.profile.archetypeTag})</span>
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-2">
@@ -211,7 +254,8 @@ export function App() {
               {showSearchModal && (
                 <UsernameSearchHero
                   onScrapeUsername={handleScrapeUsername}
-                  onSelectArchetype={setSelectedCreatorId}
+                  onSelectCachedProfile={handleSelectCreator}
+                  cachedProfiles={cachedProfiles}
                   isLoading={isScraping}
                   statusMessage={scrapingStatus}
                   errorMessage={scrapingError}

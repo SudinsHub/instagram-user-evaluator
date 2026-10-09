@@ -1,8 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CreatorProfile } from "@/types/evaluator";
-import { CREATOR_DATASETS } from "@/data/mockProfiles";
+import { CreatorProfile, CachedProfileItem } from "@/types/evaluator";
 import { PRESET_CONFIGS } from "@/lib/defaults";
 import {
   RotateCcw,
@@ -13,11 +12,13 @@ import {
   ChevronDown,
   Sparkles,
   SlidersHorizontal,
+  HardDrive,
 } from "lucide-react";
 
 interface HeaderProps {
   selectedCreatorId: string;
   onSelectCreator: (id: string) => void;
+  cachedProfiles: CachedProfileItem[];
   activeCreator: CreatorProfile | null;
   onResetDefaults: () => void;
   onApplyPreset: (presetKey: string) => void;
@@ -31,6 +32,7 @@ interface HeaderProps {
 export function Header({
   selectedCreatorId,
   onSelectCreator,
+  cachedProfiles = [],
   activeCreator,
   onResetDefaults,
   onApplyPreset,
@@ -89,19 +91,26 @@ export function Header({
           </div>
         </div>
 
-        {/* Center / Creator Selector */}
+        {/* Center / Cached Profiles Selector */}
         <div className="flex items-center space-x-2 w-full sm:w-auto">
-          <span className="text-xs text-muted-foreground hidden lg:inline shrink-0">Profile:</span>
-          <div className="relative w-full sm:w-64">
+          <span className="text-xs text-muted-foreground hidden lg:inline shrink-0 flex items-center space-x-1">
+            <HardDrive className="h-3.5 w-3.5 text-emerald-500 inline mr-1" />
+            <span>Cached Profile:</span>
+          </span>
+          <div className="relative w-full sm:w-72">
             <select
               value={selectedCreatorId}
               onChange={(e) => onSelectCreator(e.target.value)}
               className="w-full h-8 sm:h-9 rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
             >
-              <option value="">-- Select Creator Archetype --</option>
-              {Object.entries(CREATOR_DATASETS).map(([id, data]) => (
-                <option key={id} value={id}>
-                  @{data.profile.username} ({data.profile.archetypeTag})
+              <option value="">
+                {cachedProfiles.length > 0
+                  ? `-- Select Cached Profile (${cachedProfiles.length} in /cache) --`
+                  : "-- No Cached Profiles Found (/cache) --"}
+              </option>
+              {cachedProfiles.map((item) => (
+                <option key={item.username} value={item.username}>
+                  @{item.username} ({item.followers ? `${item.followers.toLocaleString()} fol` : "Profile"} • {item.posts_count} posts • {item.age_days}d old)
                 </option>
               ))}
             </select>

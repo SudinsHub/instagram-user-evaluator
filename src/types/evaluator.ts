@@ -85,6 +85,25 @@ export interface CreatorPost {
   is_video: boolean;
   caption?: string;
   image_url?: string;
+  url?: string;
+}
+
+export interface CreatorDataset {
+  profile: CreatorProfile;
+  posts: CreatorPost[];
+}
+
+export interface CachedProfileItem {
+  username: string;
+  full_name: string;
+  followers: number;
+  following: number;
+  posts_count: number;
+  is_verified: boolean;
+  is_private: boolean;
+  cached_at: string;
+  age_days: number;
+  days_left: number;
 }
 
 export interface PostStats {
